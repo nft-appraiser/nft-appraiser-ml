@@ -8,14 +8,25 @@ from typing import List
 import requests
 import numpy as np
 import pandas as pd
-from tqdm.notebook import tqdm
+from tqdm.notebook import tqdm  # if you don't use IPython Kernel like jupyter, you should change "tqdm.notebook" to "tqdm"
 from cairosvg import svg2png
 from PIL import Image
 import cv2
 
 
-# 画像データかどうか判別
 def is_image(url) -> bool:
+    """
+    Determine if it is an image of png or jpeg.
+
+    Parameters
+    ----------
+    url : str
+        Target url.
+
+    Returns
+    -------
+    True or False: Return True if this url content is an image of png or jpeg else returns False.
+    """
     img = requests.get(url).content
     img_type = imghdr.what(None, h=img)
 
@@ -25,24 +36,61 @@ def is_image(url) -> bool:
         return False
 
 
-# svgデータかどうかを判別
 def is_svg(url) -> bool:
+    """
+    Determine if it is an image of svg.
+
+    Parameters
+    ----------
+    url : str
+        Target url.
+
+    Returns
+    -------
+    True or False: Return True if this url content is an image of svg else returns False.
+    """
     if url.endswith(".svg"):
         return True
     else:
         return False
 
 
-# png, jpegファイルをpngファイルで保存
 def save_png(url, file_name) -> None:
+    """
+    Save an image of png or jpeg as a png file. 
+
+    Parameters
+    ----------
+    url : str
+        Target url.
+    file_name : str
+        The file path of a saved png file.
+
+    Returns
+    -------
+    None
+    """
     img = requests.get(url).content
     img = Image.open(BytesIO(img)).convert("RGBA")
     img = cv2.cvtColor(np.array(img), cv2.COLOR_RGBA2BGRA)
     cv2.imwrite(file_name, img, [int(cv2.IMWRITE_PNG_COMPRESSION), 3])
 
 
-# svgファイルをpngファイルで保存
 def save_svg(url, file_name) -> None:
+    """
+    Save an image of svg as an svg file. The content that is svg data of animation can't save. 
+
+    Parameters
+    ----------
+    url : str
+        Target url.
+    file_name : str
+        The file path of a saved png file.
+
+    Returns
+    -------
+    None
+    """
     img = requests.get(url).content
     img = svg2png(bytestring=img)
     img = Image.open(BytesIO(img)).convert("RGBA")
@@ -51,6 +99,37 @@ def save_svg(url, file_name) -> None:
 
 
 def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
+    """
+    Get data of NFT to be had registered OpenSea by using OpenSea API.
+    You can get a large amount of data randomly. If you want to change data to be acquired,
+    you should view the reference of OpenSea API and change 'params' and 'get_features'.
+    Also, I set the delay to reduce the server load by 1 process per 1 min.
+    Please change according to your preference(within the bounds of common sense).
+    If got data is other than png, jpeg, and svg(still image), the data can't save
+    (but continue the process).
+
+    Parameter
+    ---------
+    dir_name : str
+        Directory path to save images.
+    num_loop : int
+        A number of loops. A number of getting data is 'num_loop' * 50
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The DataFrame consists of NFT data includes all image ids etc...
+
+    See Also
+    --------
+    get_features : list of str
+        There are hundreds of columns of original data, but the number of data to be
+        acquired is limited. Please change according to your preference if column names
+        that you need are not included.
+    params : dict of requests parameters
+        Like get_featrues, Please change according to your preference if you want to change
+        getting data.
+    """
     DATAPATH = dir_name
     e_count = 0
 
@@ -92,8 +171,7 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
             except:
                 continue
 
-        # サーバー負荷を考慮して1分接続に間隔を開ける
-        gc.collect()  # 念の為メモリを解放し処理が止まらないようにする
+        gc.collect()  # Just in case, free the memory so that the process does not stop
         time.sleep(60)
 
     df['image_id'] = df.index.values.astype(str)
@@ -102,6 +180,37 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
 
 
 def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.DataFrame:
+    """
+    Get data of NFT to be had registered OpenSea by using OpenSea API.
+    You can get a large amount of data you prefer collection. If you want to change data to be acquired,
+    you should view the reference of OpenSea API and change 'params' and 'get_features'.
+    Also, I set the delay to reduce the server load by 1 process per 1 min.
+    Please change according to your preference(within the bounds of common sense).
+    If got data is other than png, jpeg, and svg(still image), the data can't save
+    (but continue the process).
+
+    Parameter
+    ---------
+    dir_name : str
+        Directory path to save images.
+    target_collections : list of str
+        The list of collection names you prefer.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The DataFrame consists of NFT data includes all image ids etc...
+
+    See Also
+    --------
+    get_features : list of str
+        There are hundreds of columns of original data, but the number of data to be
+        acquired is limited. Please change according to your preference if column names
+        that you need are not included.
+    params : dict of requests parameters
+        Like get_featrues, Please change according to your preference if you want to change
+        getting data.
+    """
     DATAPATH = dir_name
     e_count = 0
     e_collection = []
@@ -144,8 +253,7 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
                     else:
                         continue
 
-                # サーバー負荷を考慮して1分接続に間隔を開ける
-                gc.collect()  # 念の為メモリを解放し処理が止まらないようにする
+                gc.collect()  # Just in case, free the memory so that the process does not stop
                 time.sleep(60)
 
             except:
