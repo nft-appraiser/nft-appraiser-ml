@@ -1,0 +1,12 @@
+version: '3'
+services:
+  python3:
+    restart: always
+    ports:
+      - "8888:8888"
+    build: .
+    container_name: NFT_AI
+    working_dir: '/root/'
+    tty: true
+    volumes:
+      - ./code:/root/code
