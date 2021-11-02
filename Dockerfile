@@ -7,7 +7,7 @@ RUN apt install -y libgl1-mesa-dev
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
 
-RUN python -m pip install jupyterlab numpy pandas requests cairosvg opencv-python pillow tqdm ipywidgets
+RUN python -m pip install jupyterlab numpy pandas scikit-learn requests cairosvg opencv-python pillow tqdm ipywidgets tensorflow==2.6.0 cloudpickle
 
 RUN jupyter notebook --generate-config
 RUN echo "c.NotebookApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_notebook_config.py
