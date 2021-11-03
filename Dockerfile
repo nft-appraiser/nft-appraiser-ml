@@ -1,7 +1,7 @@
 FROM python:3.9
 
 RUN apt update
-RUN apt upgrade
+RUN apt upgrade -y
 RUN apt install -y libgl1-mesa-dev
 
 RUN pip install --upgrade pip
