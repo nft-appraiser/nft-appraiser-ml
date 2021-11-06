@@ -1,6 +1,7 @@
 import os
 from typing import List, Optional, Tuple
 import math
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ import tensorflow.keras.optimizers as optim
 import tensorflow.keras.activations as activations
 from tensorflow.keras.utils import Sequence
 import tensorflow.keras.callbacks as callbacks
+from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from tensorflow.keras.applications import EfficientNetB0 as efn
 import cloudpickle
 
@@ -248,23 +250,152 @@ class DataLoader(Sequence):
             self._shuffle()
 
 
-class NFTModel:
+def create_model(input_shape: Tuple[int], meta_shape: int,
+                 output_shape: int, activation, loss,
+                 learning_rate: float = 0.001,
+                 pretrain: bool = False) -> models.Model:
     """
-    Model Class.
+    The function for creating model.
+
+    Parameters
+    ----------
+    input_shape : int
+        Shape of input image data.
+    meta_shape : int
+        Shape of input meta data of image.
+    output_shape : int
+        Shape of model output.
+    activation : function
+        The activation function used hidden layers.
+    loss : function
+        The loss function of model.
+    learning_rate : float
+        The learning rate of model.
+    pretrain : bool
+        Flag that deterimine whether use pretrain model(default=False).
+
+    Returns
+    -------
+    model : keras.models.Model
+        Model instance.
+    """
+    if pretrain:
+        weights = 'imagenet'
+    else:
+        weights = None
+
+    inputs = layers.Input(shape=input_shape)
+    efn_model = efn(include_top=False, input_shape=input_shape,
+                    weights=weights)(inputs)
+    ga = layers.GlobalAveragePooling2D()(efn_model)
+
+    meta_inputs = layers.Input(shape=meta_shape)
+    concate = layers.Concatenate()([ga, meta_inputs])
+    dense1 = layers.Dense(units=128)(concate)
+    bn1 = layers.BatchNormalization()(dense1)
+    av1 = layers.Activation(activation)(bn1)
+    dense2 = layers.Dense(units=64)(av1)
+    bn2 = layers.BatchNormalization()(dense2)
+    av2 = layers.Activation(activation)(bn2)
+    outputs = layers.Dense(output_shape)(av2)
+
+    model = models.Model(inputs=[inputs, meta_inputs], outputs=[outputs])
+    model.compile(loss=loss,
+                  optimizer=optim.SGD(learning_rate=learning_rate, momentum=0.9),
+                  metrics=['mae', 'mse'])
+    return model
+
+
+class NFTModel(KerasRegressor):
+    """
+    Model class.
+    This class is inherited KerasRegressor class of keras.
     """
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_func):
         """
-        Constructoer.
+        Constructor.
+
+        Prameters
+        ---------
+        model_func : function
+            The function for creating model.
+        """
+        super().__init__(build_fn=model_func)
+
+    def __getstate__(self):
+        result = {'sk_params': self.sk_params}
+        with tempfile.TemporaryDirectory() as dir:
+            if hasattr(self, 'model'):
+                self.model.save(dir + '/output.h5', include_optimizer=False)
+                with open(dir + '/output.h5', 'rb') as f:
+                    result['model'] = f.read()
+        return result
+
+    def __setstate__(self, serialized):
+        self.sk_params = serialized['sk_params']
+        with tempfile.TemporaryDirectory() as dir:
+            model_data = serialized.get('model')
+            if model_data:
+                with open(dir + '/input.h5', 'wb') as f:
+                    f.write(model_data)
+                self.model = tf.keras.models.load_model(dir + '/input.h5')
+
+    def fit(self, train_gen, val_gen, epochs, batch_size, callbacks):
+        """
+        Training model.
 
         Parameters
         ----------
-        model_path : str
-            The absolute path of model file.
+        train_gen : iterator
+            The generator of train data.
+        val_gen : iterator
+            The generator of validation data.
+        epochs : int
+            Number of epochs for training model.
+        batch_size : int
+            Size of batch for training model.
+        callbacks : list
+            The list of callbacks.
+            For example [EarlyStopping instance, ModelCheckpoint instance]
         """
-        self.model_path = model_path
-        # 随時追加
-        self.collection_dict = {
+        self.model = self.build_fn
+        self.model.fit(train_gen, epochs=epochs, batch_size=batch_size,
+                       validation_data=val_gen, callbacks=callbacks)
+
+    def evaluate(self, test_X, test_y):
+        """
+        Evaluate model.
+
+        Parameters
+        ----------
+        test_X : iterator
+            The generator of test data.
+        test_y : np.ndarray
+            The array of targets of test data.
+        """
+        pred = self.model.predict(test_X)
+        pred = np.where(pred < 0, 0, pred)
+        rmse = np.sqrt(mean_squared_error(test_y, pred))
+        mae = np.sqrt(mean_absolute_error(test_y, pred))
+
+        print(f"RMSE Score: {rmse}")
+        print(f"MAE Score: {mae}")
+
+    def predict(self, img_path: str, collection_name: str, num_sales: int):
+        """
+        Predict data using trained model.
+
+        Parameters
+        ----------
+        img_path : str
+            The path of image data.
+        collection_name : str
+            Name of collection of the NFT.
+        num_sales : int
+            Number of times the NFT sold.
+        """
+        collection_dict = {
              'Axie': 0,
              'BoredApeYachtClub': 1,
              'CryptoPunks': 2,
@@ -275,23 +406,7 @@ class NFTModel:
              'KaijuKingz': 7,
              'Sneaky Vampire Syndicate': 8
         }
-
-    def predict(self, img_path: str, collection_name: str, num_sales: int):
-        """
-        Predict Ethereum of new data. 
-
-        Parameters
-        ----------
-        img_path : str
-            The absolute path of image data.
-        collection_name : str
-            Collection name of NFT. This name will use as a feature if collection dict include this name.
-        num_sales : int
-            Number of times the NFT sold.
-        """
-        model = models.load_model(self.model_path)
-
-        meta_data = np.zeros(shape=(len(self.collection_dict)+1))
+        meta_data = np.zeros(shape=(len(collection_dict)+1))
         if collection_name in self.collection_dict.keys():
             meta_data[self.collection_dict[collection_name]] = 1
         meta_data[-1] = num_sales
@@ -300,8 +415,66 @@ class NFTModel:
         img = cv2.resize(cv2.imread(img_path)/256., (256, 256))
         img = img.reshape(1, 256, 256, 3)
 
-        pred = model.predict([img, meta_data])
+        pred = self.model.predict([img, meta_data])
         return pred[0][0]
+
+
+def train(path_list: np.ndarray, meta_data: np.ndarray,
+          target: np.ndarray, loss):
+    """
+    The function for training model.
+
+    Parameters
+    ----------
+    path_list : np.ndarray
+        The path list of all image data.
+    meta_data : np.ndarray
+        The array of meta data of image.
+    target : np.ndarray
+        The array of targets data.
+    loss : function
+        The loss function of keras.
+    """
+    train_path, val_path, train_meta, val_meta, train_y, val_y =\
+        train_test_split(path_list, meta_data, target, test_size=0.1, random_state=6174)
+
+    train_gen = FullPathDataLoader(path_list=train_path,
+                                   meta_data=train_meta, target=train_y,
+                                   batch_size=16)
+    val_gen = FullPathDataLoader(path_list=val_path,
+                                 meta_data=val_meta, target=val_y,
+                                 batch_size=1)
+    model = NFTModel(
+        create_model(input_shape=(256, 256, 3), meta_shape=len(meta_features),
+                     output_shape=1, activation=activations.relu,
+                     loss=loss, learning_rate=0.0001,
+                     pretrain=True)
+    )
+
+    ES = callbacks.EarlyStopping(monitor='val_loss', patience=5,
+                                 restore_best_weights=True)
+
+    print("starting training")
+    print('*' + '-' * 30 + '*')
+
+    model.fit(train_gen, val_gen, epochs=100, batch_size=16,
+              callbacks=[ES])
+
+    print("finished training")
+    print('*' + '-' * 30 + '*' + '\n')
+
+    val_gen = FullPathDataLoader(path_list=val_path,
+                                 meta_data=val_meta, target=val_y,
+                                 batch_size=1, shuffle=False, is_train=False)
+    print("starting evaluate")
+    print('*' + '-' * 30 + '*')
+
+    model.evaluate(val_gen, val_y)
+
+    print("finished evaluate")
+    print('*' + '-' * 30 + '*' + '\n')
+
+    return model
 
 
 def load_model(file_name: str):
@@ -337,32 +510,3 @@ def save_model(instance, file_name: str):
     """
     with open(file_name, mode='wb') as f:
         cloudpickle.dump(instance, f)
-
-
-def create_model(input_shape: Tuple[int], meta_shape: int,
-                 output_shape: int, activation,
-                 learning_rate: float = 0.001) -> models.Model:
-    inputs = layers.Input(shape=input_shape)
-    efn_model = efn(include_top=False, input_shape=input_shape,
-                    weights=None)(inputs)
-    ga = layers.GlobalAveragePooling2D()(efn_model)
-
-    meta_inputs = layers.Input(shape=meta_shape)
-    concate = layers.Concatenate()([ga, meta_inputs])
-    dense1 = layers.Dense(units=128)(concate)
-    bn1 = layers.BatchNormalization()(dense1)
-    av1 = layers.Activation(activation)(bn1)
-    dense2 = layers.Dense(units=64)(av1)
-    bn2 = layers.BatchNormalization()(dense2)
-    av2 = layers.Activation(activation)(bn2)
-    outputs = layers.Dense(output_shape)(av2)
-
-    model = models.Model(inputs=[inputs, meta_inputs], outputs=[outputs])
-    model.compile(loss=losses.mean_absolute_error,
-                  optimizer=optim.SGD(learning_rate=learning_rate, momentum=0.9),
-                  metrics=['mae', 'mse'])
-    return model
-
-if __name__ == '__main__':
-    pass
-
