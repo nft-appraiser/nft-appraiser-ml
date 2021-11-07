@@ -10,3 +10,8 @@ services:
     tty: true
     volumes:
       - ./code:/root/code
+      - ./notebooks:/root/notebooks
+      - ./src:/root/src:ro
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    command: jupyter lab
