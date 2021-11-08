@@ -131,7 +131,6 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
         getting data.
     """
     DATAPATH = dir_name
-    e_count = 0
 
     get_features = ['id', 'asset.image_url', 'base_price', 'current_price', 'payment_token',
                     'quantity', 'asset.num_sales', 'asset.id', 'asset.token_id',
@@ -174,7 +173,6 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
         gc.collect()  # Just in case, free the memory so that the process does not stop
         time.sleep(60)
 
-    
     df = df.reset_index(drop=True)
     df['image_id'] = df.index.values.astype(str)
     df['image_id'] = df['image_id'].apply(lambda x: x + '.png')
