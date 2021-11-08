@@ -10,8 +10,8 @@ http://localhost:8888/ を開く。
 
 ## データ収集
 
-notebooks/test.ipynbを実行
+notebooks/get_data.ipynbを実行
 
 ## 学習
 
-notebooks/evaluate_model.ipynbを実行
+notebooks/training_model.ipynbを実行
