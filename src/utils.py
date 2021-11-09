@@ -3,7 +3,7 @@ import gc
 import time
 import imghdr
 from io import BytesIO
-from typing import List
+from typing import List, Optional
 
 import requests
 import numpy as np
@@ -98,7 +98,8 @@ def save_svg(url, file_name) -> None:
     cv2.imwrite(file_name, img)
 
 
-def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
+def get_random_data(dir_name: str, num_loop: Optional[int] = None,
+                    is_test: bool = False) -> pd.DataFrame:
     """
     Get data of NFT to be had registered OpenSea by using OpenSea API.
     You can get a large amount of data randomly. If you want to change data to be acquired,
@@ -114,6 +115,8 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
         Directory path to save images.
     num_loop : int
         A number of loops. A number of getting data is 'num_loop' * 50
+    is_test : bool
+        Get small data(num_loop=5) regardless value of num_loop if you set "is_test=True".
 
     Returns
     -------
@@ -133,25 +136,34 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
     DATAPATH = dir_name
 
     get_features = ['id', 'asset.image_url', 'base_price', 'current_price', 'payment_token',
-                    'quantity', 'asset.num_sales', 'asset.id', 'asset.token_id',
+                    'quantity', 'asset.num_sales', 'asset.id', 'asset.token_id', 'asset_contract.name',
                     'asset.asset_contract.address', 'asset.asset_contract.asset_contract_type',
                     'asset.asset_contract.owner']
 
     df = pd.DataFrame(columns=get_features)
     img_id = 0
     url = "https://api.opensea.io/wyvern/v1/orders?bundled=false&include_bundled=false&include_invalid=false&limit=20&offset=0&order_by=created_date&order_direction=desc"
+
+    if is_test or num_loop is None:
+        num_loop = 5
+        print("This function execute on test mode(automatically changes to num_loop=5).")
+
     for idx in tqdm(range(num_loop)):
-        headers = {"Accept": "application/json"}
-        params = {"limit": "50",
-                  "offset": str(num_loop-idx)}
+        try:
+            headers = {"Accept": "application/json"}
+            params = {"limit": "50",
+                      "offset": str(num_loop-idx)}
 
-        response = requests.request("GET", url, headers=headers, params=params)
+            response = requests.request("GET", url, headers=headers, params=params)
 
-        data = response.json()
-        orders_df = pd.json_normalize(data['orders'])
+            data = response.json()
+            orders_df = pd.json_normalize(data['orders'])
 
-        for i in range(orders_df.shape[0]):
-            try:
+            for column in get_features:
+                if column not in orders_df.columns.values:
+                    orders_df[column] = None
+
+            for i in range(orders_df.shape[0]):
                 img_url = orders_df.iloc[i]['asset.image_url']
                 img_url.replace(" ", "")
                 if is_image(img_url):
@@ -167,11 +179,12 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
                 else:
                     continue
 
-            except:
-                continue
+            gc.collect()  # Just in case, free the memory so that the process does not stop
+            time.sleep(60)
 
-        gc.collect()  # Just in case, free the memory so that the process does not stop
-        time.sleep(60)
+        except:
+            gc.collect()  # Just in case, free the memory so that the process does not stop
+            time.sleep(60)
 
     df = df.reset_index(drop=True)
     df['image_id'] = df.index.values.astype(str)
@@ -179,7 +192,8 @@ def get_random_data(dir_name: str, num_loop: int) -> pd.DataFrame:
     return df
 
 
-def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.DataFrame:
+def get_collection_data(dir_name: str, target_collections: Optional[List[str]] = None,
+                        is_test: bool = False) -> pd.DataFrame:
     """
     Get data of NFT to be had registered OpenSea by using OpenSea API.
     You can get a large amount of data you prefer collection. If you want to change data to be acquired,
@@ -195,6 +209,9 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
         Directory path to save images.
     target_collections : list of str
         The list of collection names you prefer.
+        This variable can be set None, but you must set is_test=True.
+    is_test : bool
+        Get small data regardless values of target_collections if you set "is_test=True".
 
     Returns
     -------
@@ -215,6 +232,11 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
     e_count = 0
     e_collection = []
 
+    if is_test:
+        print("This function execute on test mode.")
+        print("Automatically set target_collections:\n['cryptopunks', 'boredapeyachtclub', 'doodles-official']")
+        target_collections = ['cryptopunks', 'boredapeyachtclub', 'doodles-official']
+
     get_features = ['id', 'num_sales', 'image_url', 'asset_contract.name',
                     'owner.address', 'last_sale.quantity', 'last_sale.total_price']
     df = pd.DataFrame(columns=get_features)
@@ -228,7 +250,7 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
                     "offset": str(50*idx),
                     "order_by": "sale_date",
                     "order_direction": "desc",
-                    "limit": "50", 
+                    "limit": "50",
                     "collection": collection
                 }
 
@@ -236,6 +258,10 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
 
                 data = response.json()
                 assets_df = pd.json_normalize(data['assets'])
+
+                for column in get_features:
+                    if column not in assets_df.columns.values:
+                        assets_df[column] = None
 
                 for i in range(assets_df.shape[0]):
                     img_url = assets_df.iloc[i]['image_url']
@@ -269,3 +295,33 @@ def get_collection_data(dir_name: str, target_collections: List[str]) -> pd.Data
     df['image_id'] = df.index.values.astype(str)
     df['image_id'] = df['image_id'].apply(lambda x: x + '.png')
     return df
+
+
+def get_data(asset_contract_address: str, token_id: str):
+    """
+    Get the asset data.
+
+    Parameters
+    ----------
+    asset_contract_address : str
+        The string of asset contract address.
+    token_id : str
+        The string of token id.
+
+    Returns
+    -------
+    orders_df : pd.DataFrame
+        The dataframe of asset data.
+    """
+
+    if type(token_id) != str:
+        token_id = str(token_id)
+    url = f"https://api.opensea.io/wyvern/v1/orders?asset_contract_address={asset_contract_address}&bundled=false&include_bundled=false&include_invalid=false&token_id={token_id}&limit=50&offset=0"
+    headers = {"Accept": "application/json"}
+
+    response = requests.request("GET", url, headers=headers)
+
+    data = response.json()
+    orders_df = pd.json_normalize(data['orders'])
+
+    return orders_df
