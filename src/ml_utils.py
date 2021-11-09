@@ -21,6 +21,16 @@ from tensorflow.keras.applications import EfficientNetB0 as efn
 import cloudpickle
 
 
+def collection_validation(data: pd.DataFrame, collection_name: str):
+    if collection_name not in data['asset_contract.name'].values:
+        raise KeyError(f"{collection_name} is not conclude dataframe.")
+
+    train_df = data[data['asset_contract.name'] != collection_name].reset_index(drop=True)
+    test_df = data[data['asset_contract.name'] == collection_name].reset_index(drop=True)
+
+    return train_df, test_df
+
+
 class FullPathDataLoader(Sequence):
     """
     Data loader that load images, meta data and targets.
