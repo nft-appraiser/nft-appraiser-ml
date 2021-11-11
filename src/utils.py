@@ -135,14 +135,9 @@ def get_random_data(dir_name: str, num_loop: Optional[int] = None,
     """
     DATAPATH = dir_name
 
-    get_features = ['id', 'asset.image_url', 'base_price', 'current_price', 'payment_token',
-                    'quantity', 'asset.num_sales', 'asset.id', 'asset.token_id', 'asset_contract.name',
-                    'asset.asset_contract.address', 'asset.asset_contract.asset_contract_type',
-                    'asset.asset_contract.owner']
-
-    df = pd.DataFrame(columns=get_features)
+    df = pd.DataFrame()
     img_id = 0
-    url = "https://api.opensea.io/wyvern/v1/orders?bundled=false&include_bundled=false&include_invalid=false&limit=20&offset=0&order_by=created_date&order_direction=desc"
+    url = "https://api.opensea.io/api/v1/assets"
 
     if is_test or num_loop is None:
         num_loop = 5
@@ -150,31 +145,36 @@ def get_random_data(dir_name: str, num_loop: Optional[int] = None,
 
     for idx in tqdm(range(num_loop)):
         try:
-            headers = {"Accept": "application/json"}
             params = {"limit": "50",
-                      "offset": str(num_loop-idx)}
+                      "order_by": "sale_date",
+                      "order_direction": "desc",
+                      "offset": str(50*idx)}
 
-            response = requests.request("GET", url, headers=headers, params=params)
+            response = requests.request("GET", url, params=params)
 
             data = response.json()
-            orders_df = pd.json_normalize(data['orders'])
+            assets_df = pd.json_normalize(data['assets'])
 
-            for column in get_features:
-                if column not in orders_df.columns.values:
-                    orders_df[column] = None
+            for feature in assets_df.columns.values:
+                if feature not in df.columns.values:
+                    df[feature] = None
 
-            for i in range(orders_df.shape[0]):
-                img_url = orders_df.iloc[i]['asset.image_url']
+            for feature in df.columns.values:
+                if feature not in assets_df.columns.values:
+                    assets_df[feature] = None
+
+            for i in range(assets_df.shape[0]):
+                img_url = assets_df.iloc[i]['image_url']
                 img_url.replace(" ", "")
                 if is_image(img_url):
                     file_name = os.path.join(DATAPATH, f"{img_id}.png")
                     save_png(img_url, file_name)
-                    df = df.append(orders_df.iloc[i][get_features])
+                    df = df.append(assets_df.iloc[i])
                     img_id += 1
                 elif is_svg(img_url):
                     file_name = os.path.join(DATAPATH, f"{img_id}.png")
                     save_svg(img_url, file_name)
-                    df = df.append(orders_df.iloc[i][get_features])
+                    df = df.append(assets_df.iloc[i])
                     img_id += 1
                 else:
                     continue
@@ -237,9 +237,7 @@ def get_collection_data(dir_name: str, target_collections: Optional[List[str]] =
         print("Automatically set target_collections:\n['cryptopunks', 'boredapeyachtclub', 'doodles-official']")
         target_collections = ['cryptopunks', 'boredapeyachtclub', 'doodles-official']
 
-    get_features = ['id', 'num_sales', 'image_url', 'asset_contract.name',
-                    'owner.address', 'last_sale.quantity', 'last_sale.total_price']
-    df = pd.DataFrame(columns=get_features)
+    df = pd.DataFrame()
     img_id = 0
     url = "https://api.opensea.io/api/v1/assets"
 
@@ -259,9 +257,13 @@ def get_collection_data(dir_name: str, target_collections: Optional[List[str]] =
                 data = response.json()
                 assets_df = pd.json_normalize(data['assets'])
 
-                for column in get_features:
-                    if column not in assets_df.columns.values:
-                        assets_df[column] = None
+                for feature in assets_df.columns.values:
+                    if feature not in df.columns.values:
+                        df[feature] = None
+
+                for feature in df.columns.values:
+                    if feature not in assets_df.columns.values:
+                        assets_df[feature] = None
 
                 for i in range(assets_df.shape[0]):
                     img_url = assets_df.iloc[i]['image_url']
@@ -269,12 +271,12 @@ def get_collection_data(dir_name: str, target_collections: Optional[List[str]] =
                     if is_image(img_url):
                         file_name = os.path.join(DATAPATH, f"{img_id}.png")
                         save_png(img_url, file_name)
-                        df = df.append(assets_df.iloc[i][get_features])
+                        df = df.append(assets_df.iloc[i])
                         img_id += 1
                     elif is_svg(img_url):
                         file_name = os.path.join(DATAPATH, f"{img_id}.png")
                         save_svg(img_url, file_name)
-                        df = df.append(assets_df.iloc[i][get_features])
+                        df = df.append(assets_df.iloc[i])
                         img_id += 1
                     else:
                         continue
@@ -316,12 +318,12 @@ def get_data(asset_contract_address: str, token_id: str):
 
     if type(token_id) != str:
         token_id = str(token_id)
-    url = f"https://api.opensea.io/wyvern/v1/orders?asset_contract_address={asset_contract_address}&bundled=false&include_bundled=false&include_invalid=false&token_id={token_id}&limit=50&offset=0"
+    url = f"https://api.opensea.io/api/v1/asset/{asset_contract_address}/{token_id}/"
     headers = {"Accept": "application/json"}
 
     response = requests.request("GET", url, headers=headers)
 
     data = response.json()
-    orders_df = pd.json_normalize(data['orders'])
+    asset_df = pd.json_normalize(data)
 
-    return orders_df
+    return asset_df
