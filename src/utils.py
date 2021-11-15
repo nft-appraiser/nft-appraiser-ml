@@ -99,7 +99,7 @@ def save_svg(url, file_name) -> None:
 
 
 def get_random_data(dir_name: str, num_loop: Optional[int] = None,
-                    is_test: bool = False) -> pd.DataFrame:
+                    start_id: int = 0, is_test: bool = False) -> pd.DataFrame:
     """
     Get data of NFT to be had registered OpenSea by using OpenSea API.
     You can get a large amount of data randomly. If you want to change data to be acquired,
@@ -136,7 +136,7 @@ def get_random_data(dir_name: str, num_loop: Optional[int] = None,
     DATAPATH = dir_name
 
     df = pd.DataFrame()
-    img_id = 0
+    img_id = start_id
     url = "https://api.opensea.io/api/v1/assets"
 
     if is_test or num_loop is None:
@@ -150,7 +150,7 @@ def get_random_data(dir_name: str, num_loop: Optional[int] = None,
                       "order_direction": "desc",
                       "offset": str(50*idx)}
 
-            response = requests.request("GET", url, params=params)
+            response = requests.get(url, params=params)
 
             data = response.json()
             assets_df = pd.json_normalize(data['assets'])
@@ -183,11 +183,12 @@ def get_random_data(dir_name: str, num_loop: Optional[int] = None,
             time.sleep(60)
 
         except:
-            gc.collect()  # Just in case, free the memory so that the process does not stop
+            gc.collect()
             time.sleep(60)
+            continue
 
     df = df.reset_index(drop=True)
-    df['image_id'] = df.index.values.astype(str)
+    df['image_id'] = (df.index.values.astype(int)+start_id).astype(str)
     df['image_id'] = df['image_id'].apply(lambda x: x + '.png')
     return df
 
