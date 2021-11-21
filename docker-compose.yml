@@ -5,7 +5,7 @@ services:
     ports:
       - "8888:8888"
     build: .
-    container_name: NFT_AI
+    container_name: NFT_AI 
     working_dir: '/root/'
     tty: true
     volumes:
@@ -14,4 +14,4 @@ services:
       - ./src:/root/src:ro
     environment:
       - JUPYTER_ENABLE_LAB=yes
-    command: jupyter lab
+    command: bash -c "mv /Swin-Transformer-TF /root/code/Swin-Transformer-TF && jupyter lab"
