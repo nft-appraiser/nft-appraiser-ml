@@ -2,7 +2,7 @@ FROM python:3.9
 
 RUN apt update
 RUN apt upgrade -y
-RUN apt install -y libgl1-mesa-dev
+RUN apt install -y libgl1-mesa-dev git
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
@@ -18,3 +18,5 @@ RUN echo "c.NotebookApp.allow_root = True" >> /root/.jupyter/jupyter_notebook_co
 RUN echo "c.NotebookApp.open_browser = False" >> /root/.jupyter/jupyter_notebook_config.py
 
 ADD . /root
+
+RUN git clone https://github.com/rishigami/Swin-Transformer-TF.git
