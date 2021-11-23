@@ -37,10 +37,10 @@ class FullPathDataLoader(Sequence):
     This class is inherited Sequence class of Keras.
     """
 
-    def __init__(self, path_list: np.ndarray, meta_data: np.ndarray,
-                 target: Optional[np.ndarray], batch_size: int, width: int = 256,
-                 height: int = 256, resize: bool = True,
-                 shuffle: bool = True, is_train: bool = True):
+    def __init__(self, path_list: np.ndarray, target: Optional[np.ndarray] = None,
+                 meta_data: Optional[np.ndarray] = None, batch_size: int = 16,
+                 task: str = "B", width: int = 256, height: int = 256,
+                 resize: bool = True, shuffle: bool = True, is_train: bool = True):
         """
         Constructor. This method determines class variables.
 
@@ -54,6 +54,8 @@ class FullPathDataLoader(Sequence):
             Array of target variavles.
         batch_size : int
             Batch size used when model training.
+        task : str
+            Please determine this data loader will be used for task A or B(default=A).
         width : int
             Width of resized image.
         height : int
@@ -67,8 +69,8 @@ class FullPathDataLoader(Sequence):
             if you won't this data loader, you have set 'is_train'=False.
         """
         self.path_list = path_list
-        self.meta_data = meta_data
         self.batch_size = batch_size
+        self.task = task
         self.width = width
         self.height = height
         self.resize = resize
@@ -78,6 +80,8 @@ class FullPathDataLoader(Sequence):
 
         if self.is_train:
             self.target = target
+        if self.task == "A":
+            self.meta_data = meta_data
 
     def __len__(self):
         """
@@ -120,20 +124,27 @@ class FullPathDataLoader(Sequence):
         """
         idx = np.random.permutation(len(self.path_list))
         self.path_list = self.path_list[idx]
-        self.meta_data = self.meta_data[idx]
+        if self.task == "A":
+            self.meta_data = self.meta_data[idx]
         if self.is_train:
             self.target = self.target[idx]
 
     def __getitem__(self, idx):
         path_list = self.path_list[self.batch_size*idx:self.batch_size*(idx+1)]
-        meta = self.meta_data[self.batch_size*idx:self.batch_size*(idx+1)]
         img_list = self.get_img(path_list)
         if self.is_train:
             target_list = self.target[self.batch_size*idx:self.batch_size*(idx+1)]
-
-            return (img_list, meta), target_list
+            if self.task == "A":
+                meta = self.meta_data[self.batch_size*idx:self.batch_size*(idx+1)]
+                return (img_list, meta), target_list
+            else:
+                return img_list, target_list
         else:
-            return ((img_list, meta),)
+            if self.task == "A":
+                meta = self.meta_data[self.batch_size*idx:self.batch_size*(idx+1)]
+                return ((img_list, meta),)
+            else:
+                return img_list
 
     def on_epoch_end(self):
         if self.is_train:
