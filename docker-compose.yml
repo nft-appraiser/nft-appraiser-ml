@@ -4,7 +4,7 @@ services:
     ports:
       - "8888:8888"
     build: .
-    container_name: NFT_AI 
+    container_name: NFT_AI
     working_dir: '/root/'
     tty: true
     volumes:
@@ -13,4 +13,5 @@ services:
       - ./src:/root/src:ro
     environment:
       - JUPYTER_ENABLE_LAB=yes
+      - OPENSEA_API_KEY=${OPENSEA_API_KEY}
     command: bash -c "jupyter lab"
