@@ -13,6 +13,8 @@ from cairosvg import svg2png
 from PIL import Image
 import cv2
 
+def get_opensea_api_key():
+    return os.getenv('OPENSEA_API_KEY')
 
 def is_image(url) -> bool:
     """
@@ -57,7 +59,7 @@ def is_svg(url) -> bool:
 
 def save_png(url, file_name) -> None:
     """
-    Save an image of png or jpeg as a png file. 
+    Save an image of png or jpeg as a png file.
 
     Parameters
     ----------
@@ -78,7 +80,7 @@ def save_png(url, file_name) -> None:
 
 def save_svg(url, file_name) -> None:
     """
-    Save an image of svg as an svg file. The content that is svg data of animation can't save. 
+    Save an image of svg as an svg file. The content that is svg data of animation can't save.
 
     Parameters
     ----------
@@ -442,7 +444,7 @@ def concat_past_data(df: pd.DataFrame, num_past=10):
         url = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=0&limit=50"
 
         headers = {"Accept": "application/json",
-                   "X-API-KEY": "792d485923234c98a48f7c0c55118ab0"}
+                   "X-API-KEY": get_opensea_api_key()}
 
         response = requests.request("GET", url, headers=headers)
         data = response.json()
@@ -474,7 +476,7 @@ def get_past_data(df: pd.DataFrame, dir_name: str):
             url2 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=50&limit=50"
 
             headers = {"Accept": "application/json",
-                       "X-API-KEY": "792d485923234c98a48f7c0c55118ab0"}
+                       "X-API-KEY": get_opensea_api_key()}
 
             response1 = requests.request("GET", url1, headers=headers)
             data1 = response1.json()
@@ -511,7 +513,7 @@ def get_successful_data(df: pd.DataFrame, dir_name: str):
             url = f"https://api.opensea.io/api/v1/events?event_type=successful&asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=0&limit=50"
 
             headers = {"Accept": "application/json",
-                       "X-API-KEY": "792d485923234c98a48f7c0c55118ab0"}
+                       "X-API-KEY": get_opensea_api_key()}
 
             response = requests.request("GET", url, headers=headers)
             data = response.json()
