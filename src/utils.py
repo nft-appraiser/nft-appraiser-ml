@@ -16,6 +16,9 @@ import cv2
 def get_opensea_api_key():
     return os.getenv('OPENSEA_API_KEY')
 
+def get_comet_ml_key():
+    return os.getenv('COMET_ML_KEY')
+
 def is_image(url) -> bool:
     """
     Determine if it is an image of png or jpeg.
@@ -330,8 +333,9 @@ def get_data(asset_contract_address: str, token_id: str):
 
     return asset_df
 
-def get_events_data(dir_name: str, num_loop: Optional[int] = None,
-                    start_id: int = 0, is_test: bool = False) -> pd.DataFrame:
+def get_events_data(dir_name: str, num_loop: Optional[int] = 5,
+                    start_id: int = 0, is_test: bool = False,
+                    start_date: List[int] =[2020, 1, 1, 0, 0, 0], total_date: int = 700) -> pd.DataFrame:
     """
     Get events data of NFT to be had registered OpenSea by using OpenSea API.
     You can get a large amount of data randomly. If you want to change data to be acquired,
@@ -369,55 +373,61 @@ def get_events_data(dir_name: str, num_loop: Optional[int] = None,
 
     df = pd.DataFrame()
     img_id = start_id
-    url = "https://api.opensea.io/api/v1/events?event_type=offer_entered&only_opensea=false&offset=0&limit=50"
+    before_date = int(datetime(*start_date).timestamp())
     headers = {"Accept": "application/json",
-               "X-API-KEY": "792d485923234c98a48f7c0c55118ab0"}
+               "X-API-KEY": get_opensea_api_key()}
 
-    if is_test or num_loop is None:
-        num_loop = 5
-        print("This function execute on test mode(automatically changes to num_loop=5).")
+    if is_test:
+        num_loop = 3
+        total_date = 3
+        print("This function execute on test mode(automatically changes to total_date=3 and num_loop=3).")
 
-    for idx in tqdm(range(num_loop)):
-        try:
-            params = {"limit": "50",
-                      "offset": str(50*idx)}
 
-            response = requests.get(url, params=params, headers=headers)
+    for _ in tqdm(range(total_date)):
+        for idx in range(num_loop):
+            url = f"https://api.opensea.io/api/v1/events?event_type=offer_entered&only_opensea=false&occurred_before={before_date}"
+            try:
+                params = {"limit": "50",
+                          "offset": str(1000*idx)}
 
-            data = response.json()
-            assets_df = pd.json_normalize(data['asset_events'])
+                response = requests.get(url, params=params, headers=headers)
 
-            for feature in assets_df.columns.values:
-                if feature not in df.columns.values:
-                    df[feature] = None
+                data = response.json()
+                assets_df = pd.json_normalize(data['asset_events'])
 
-            for feature in df.columns.values:
-                if feature not in assets_df.columns.values:
-                    assets_df[feature] = None
+                for feature in assets_df.columns.values:
+                    if feature not in df.columns.values:
+                        df[feature] = None
 
-            for i in range(assets_df.shape[0]):
-                img_url = assets_df.iloc[i]['asset.image_url']
-                img_url.replace(" ", "")
-                if is_image(img_url):
-                    file_name = os.path.join(DATAPATH, f"{img_id}.png")
-                    save_png(img_url, file_name)
-                    df = df.append(assets_df.iloc[i])
-                    img_id += 1
-                elif is_svg(img_url):
-                    file_name = os.path.join(DATAPATH, f"{img_id}.png")
-                    save_svg(img_url, file_name)
-                    df = df.append(assets_df.iloc[i])
-                    img_id += 1
-                else:
-                    continue
+                for feature in df.columns.values:
+                    if feature not in assets_df.columns.values:
+                        assets_df[feature] = None
 
-            gc.collect()  # Just in case, free the memory so that the process does not stop
-            time.sleep(60)
+                for i in range(assets_df.shape[0]):
+                    img_url = assets_df.iloc[i]['asset.image_url']
+                    img_url.replace(" ", "")
+                    if is_image(img_url):
+                        file_name = os.path.join(DATAPATH, f"{img_id}.png")
+                        save_png(img_url, file_name)
+                        df = df.append(assets_df.iloc[i])
+                        img_id += 1
+                    elif is_svg(img_url):
+                        file_name = os.path.join(DATAPATH, f"{img_id}.png")
+                        save_svg(img_url, file_name)
+                        df = df.append(assets_df.iloc[i])
+                        img_id += 1
+                    else:
+                        continue
 
-        except:
-            gc.collect()
-            time.sleep(60)
-            continue
+                gc.collect()  # Just in case, free the memory so that the process does not stop
+                time.sleep(10)
+
+            except:
+                gc.collect()
+                time.sleep(10)
+                continue
+
+        before_date += 86400
 
     df = df.reset_index(drop=True)
     df['image_id'] = (df.index.values.astype(int)+start_id).astype(str)
