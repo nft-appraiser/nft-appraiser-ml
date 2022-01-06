@@ -4,6 +4,7 @@ import time
 import imghdr
 from io import BytesIO
 from typing import List, Optional
+from datetime import datetime
 
 import requests
 import numpy as np
@@ -479,7 +480,6 @@ def get_past_data(df: pd.DataFrame, dir_name: str):
     """
     address_list = df['asset_contract.address'].values
     token_id_list = df['token_id'].values
-    error_data = []
     for idx, url_li in tqdm(enumerate(zip(address_list, token_id_list))):
         try:
             url1 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=0&limit=50"
@@ -496,9 +496,9 @@ def get_past_data(df: pd.DataFrame, dir_name: str):
 
             df1, df2 = pd.json_normalize(data1['asset_events']), pd.json_normalize(data2['asset_events'])
 
-            df = pd.concat((df1, df2))
-            file_name = f"{dir_name}/{asset_data.loc[idx, 'collection.name']}/{url_li[0]}_{url_li[1]}.csv"
-            df.to_csv(file_name, index=False)
+            event_df = pd.concat((df1, df2))
+            file_name = f"{dir_name}/{df.loc[idx, 'collection.name']}/{url_li[0]}_{url_li[1]}.csv"
+            event_df.to_csv(file_name, index=False)
             gc.collect()
 
         except:
@@ -529,7 +529,7 @@ def get_successful_data(df: pd.DataFrame, dir_name: str):
             data = response.json()
 
             suc_df = pd.json_normalize(data['asset_events'])
-            file_name = f"{dir_name}/{asset_data.loc[idx, 'collection.name']}/{url_li[0]}_{url_li[1]}_successful.csv"
+            file_name = f"{dir_name}/{df.loc[idx, 'collection.name']}/{url_li[0]}_{url_li[1]}_successful.csv"
             suc_df.to_csv(file_name, index=False)
             gc.collect()
         except:

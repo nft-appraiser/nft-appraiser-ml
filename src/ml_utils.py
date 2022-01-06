@@ -1,7 +1,9 @@
 import os
+import sys
 from typing import List, Optional, Tuple
 import math
 import tempfile
+import random
 
 import numpy as np
 import pandas as pd
@@ -19,6 +21,9 @@ import tensorflow.keras.callbacks as callbacks
 from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from tensorflow.keras.applications import EfficientNetB0 as efn
 import cloudpickle
+
+sys.path.append('../swintransformer')
+from swintransformer import SwinTransformer
 
 
 def collection_validation(data: pd.DataFrame, collection_name: str):
@@ -51,7 +56,7 @@ class FullPathDataLoader(Sequence):
         meta_data : np.ndarray[int]
             One-hot vector of collections.
         target : np.ndarray
-            Array of target variavles.
+            Array of target variables.
         batch_size : int
             Batch size used when model training.
         task : str
@@ -98,7 +103,7 @@ class FullPathDataLoader(Sequence):
         Parameters
         ----------
         path_liist : np.ndarray
-            The array of relative image paths from directory 'dir_name'.
+            The array of relative image paths.
             Size of this array is 'batch_size'.
 
         Returns
@@ -147,9 +152,8 @@ class FullPathDataLoader(Sequence):
                 return img_list
 
     def on_epoch_end(self):
-        if self.is_train:
+        if self.shuffle:
             self._shuffle()
-
 
 class DataLoader(Sequence):
     """
@@ -271,9 +275,9 @@ class DataLoader(Sequence):
             self._shuffle()
 
 
-def create_model(input_shape: Tuple[int], meta_shape: int,
-                 output_shape: int, activation, loss,
-                 learning_rate: float = 0.001,
+def create_model(input_shape: Tuple[int], output_shape: int,
+                 activation, loss, meta_shape: Optional[int] = None,
+                 task: str = "B", learning_rate: float = 0.001,
                  pretrain: bool = False) -> models.Model:
     """
     The function for creating model.
@@ -282,14 +286,16 @@ def create_model(input_shape: Tuple[int], meta_shape: int,
     ----------
     input_shape : int
         Shape of input image data.
-    meta_shape : int
-        Shape of input meta data of image.
     output_shape : int
         Shape of model output.
     activation : function
         The activation function used hidden layers.
     loss : function
         The loss function of model.
+    meta_shape : int
+        Shape of input meta data of image.
+    task : str
+        Please determine this model will be used for task A or B(default=A).
     learning_rate : float
         The learning rate of model.
     pretrain : bool
@@ -306,23 +312,37 @@ def create_model(input_shape: Tuple[int], meta_shape: int,
         weights = None
 
     inputs = layers.Input(shape=input_shape)
-    efn_model = efn(include_top=False, input_shape=input_shape,
-                    weights=weights)(inputs)
-    ga = layers.GlobalAveragePooling2D()(efn_model)
+    base_model = SwinTransformer('swin_tiny_224', include_top=False, pretrained=True, use_tpu=False)(inputs)
 
-    meta_inputs = layers.Input(shape=meta_shape)
-    concate = layers.Concatenate()([ga, meta_inputs])
-    dense1 = layers.Dense(units=128)(concate)
-    bn1 = layers.BatchNormalization()(dense1)
-    av1 = layers.Activation(activation)(bn1)
-    dense2 = layers.Dense(units=64)(av1)
-    bn2 = layers.BatchNormalization()(dense2)
-    av2 = layers.Activation(activation)(bn2)
-    outputs = layers.Dense(output_shape)(av2)
+    if task == "A":
+        meta_inputs = layers.Input(shape=meta_shape)
+        concate = layers.Concatenate()([base_model, meta_inputs])
+        dense1 = layers.Dense(units=128)(concate)
+        av1 = layers.Activation(activation)(dense1)
+        dr1 = layers.Dropout(0.3)(av1)
+        dense2 = layers.Dense(units=64)(dr1)
+        av2 = layers.Activation(activation)(dense2)
+        dr2 = layers.Dropout(0.3)(av2)
+        outputs = layers.Dense(output_shape)(dr2)
 
-    model = models.Model(inputs=[inputs, meta_inputs], outputs=[outputs])
+        model = models.Model(inputs=[inputs, meta_inputs], outputs=[outputs])
+
+    elif task == "B":
+        dense1 = layers.Dense(units=128)(base_model)
+        av1 = layers.Activation(activation)(dense1)
+        dr1 = layers.Dropout(0.3)(av1)
+        dense2 = layers.Dense(units=64)(dr1)
+        av2 = layers.Activation(activation)(dense2)
+        dr2 = layers.Dropout(0.3)(av2)
+        outputs = layers.Dense(output_shape)(dr2)
+
+        model = models.Model(inputs=[inputs], outputs=[outputs])
+
+    else:
+        raise Exception("Please set task is A or B.")
+
     model.compile(loss=loss,
-                  optimizer=optim.SGD(learning_rate=learning_rate, momentum=0.9),
+                  optimizer=optim.Adam(learning_rate=learning_rate),
                   metrics=['mae', 'mse'])
     return model
 
@@ -333,7 +353,8 @@ class NFTModel(KerasRegressor):
     This class is inherited KerasRegressor class of keras.
     """
 
-    def __init__(self, model_func):
+    def __init__(self, model_func, input_shape, output_shape,
+                 activation, loss, meta_shape, task, learning_rate, pretrain):
         """
         Constructor.
 
@@ -342,27 +363,67 @@ class NFTModel(KerasRegressor):
         model_func : function
             The function for creating model.
         """
-        super().__init__(build_fn=model_func)
+        self.model_func = model_func
+        self.input_shape = input_shape
+        self.output_shape = output_shape
+        self.activation = activation
+        self.loss = loss
+        self.meta_shape = meta_shape
+        self.task = task
+        self.learning_rate = learning_rate
+        self.pretrain = pretrain
+        super().__init__(
+            build_fn=model_func(input_shape, output_shape,
+                                activation=activation, loss=loss,
+                                meta_shape=meta_shape, task=task,
+                                learning_rate=learning_rate, pretrain=pretrain)
+        )
+        self.model = self.build_fn
 
     def __getstate__(self):
-        result = {'sk_params': self.sk_params}
+        result = {'sk_params': self.sk_params,
+                  'model_func': self.model_func,
+                  'input_shape': self.input_shape,
+                  'output_shape': self.output_shape,
+                  'activation': self.activation,
+                  'loss': self.loss,
+                  'meta_shape': self.meta_shape,
+                  'task': self.task,
+                  'learning_rate': self.learning_rate,
+                  'pretrain': self.pretrain}
         with tempfile.TemporaryDirectory() as dir:
             if hasattr(self, 'model'):
-                self.model.save(dir + '/output.h5', include_optimizer=False)
+                self.model.save_weights(dir + '/output.h5')
                 with open(dir + '/output.h5', 'rb') as f:
-                    result['model'] = f.read()
+                    result['weights'] = f.read()
         return result
 
     def __setstate__(self, serialized):
         self.sk_params = serialized['sk_params']
-        with tempfile.TemporaryDirectory() as dir:
-            model_data = serialized.get('model')
-            if model_data:
-                with open(dir + '/input.h5', 'wb') as f:
-                    f.write(model_data)
-                self.model = tf.keras.models.load_model(dir + '/input.h5')
+        self.model_func = serialized['model_func']
+        self.input_shape = serialized['input_shape']
+        self.output_shape = serialized['output_shape']
+        self.activation = serialized['activation']
+        self.loss = serialized['loss']
+        self.meta_shape = serialized['meta_shape']
+        self.task = serialized['task']
+        self.learning_rate = serialized['learning_rate']
+        self.pretrain = serialized['pretrain']
+        self.model = self.model_func(
+                    self.input_shape, self.output_shape,
+                    activation=self.activation, loss=self.loss,
+                    meta_shape=self.meta_shape, task=self.task,
+                    learning_rate=self.learning_rate, pretrain=self.pretrain
+                )
 
-    def fit(self, train_gen, val_gen, epochs, batch_size, callbacks):
+        with tempfile.TemporaryDirectory() as dir:
+            weight_data = serialized.get('weights')
+            if weight_data:
+                with open(dir + '/input.h5', 'wb') as f:
+                    f.write(weight_data)
+                self.model.load_weights(dir + '/input.h5')
+
+    def fit(self, train_gen, val_gen, epochs, batch_size, callbacks=None):
         """
         Training model.
 
@@ -380,7 +441,6 @@ class NFTModel(KerasRegressor):
             The list of callbacks.
             For example [EarlyStopping instance, ModelCheckpoint instance]
         """
-        self.model = self.build_fn
         self.model.fit(train_gen, epochs=epochs, batch_size=batch_size,
                        validation_data=val_gen, callbacks=callbacks)
 
@@ -403,7 +463,7 @@ class NFTModel(KerasRegressor):
         print(f"RMSE Score: {rmse}")
         print(f"MAE Score: {mae}")
 
-    def predict(self, img_path: str, collection_name: str, num_sales: int):
+    def predict(self, img: np.ndarray, collection_name: str, num_sales: int):
         """
         Predict data using trained model.
 
@@ -416,32 +476,78 @@ class NFTModel(KerasRegressor):
         num_sales : int
             Number of times the NFT sold.
         """
-        collection_dict = {
-             'Axie': 0,
-             'BoredApeYachtClub': 1,
-             'CryptoPunks': 2,
-             'CyberKongz': 3,
-             'Doodles': 4,
-             'GalaxyEggs': 5,
-             'Jungle Freaks': 6,
-             'KaijuKingz': 7,
-             'Sneaky Vampire Syndicate': 8
-        }
-        meta_data = np.zeros(shape=(len(collection_dict)+1))
-        if collection_name in self.collection_dict.keys():
-            meta_data[self.collection_dict[collection_name]] = 1
-        meta_data[-1] = num_sales
-        meta_data = meta_data.reshape(1, -1)
+        if self.task == "A":
+            collections = ['CryptoPunks',
+                           'Bored Ape Yacht Club',
+                           'Edifice by Ben Kovach',
+                           'Mutant Ape Yacht Club',
+                           'The Sandbox',
+                           'Divine Anarchy',
+                           'Cosmic Labs',
+                           'Parallel Alpha',
+                           'Art Wars | AW',
+                           'Neo Tokyo Identities',
+                           'Neo Tokyo Part 2 Vault Cards',
+                           'Cool Cats NFT',
+                           'CrypToadz by GREMPLIN',
+                           'BearXLabs',
+                           'Desperate ApeWives',
+                           'Decentraland',
+                           'Neo Tokyo Part 3 Item Caches',
+                           'Doodles',
+                           'The Doge Pound',
+                           'Playboy Rabbitars Official',
+                           'THE SHIBOSHIS',
+                           'THE REAL GOAT SOCIETY',
+                           'Sipherian Flash',
+                           'Party Ape | Billionaire Club',
+                           'Treeverse',
+                           'Angry Apes United',
+                           'CyberKongz',
+                           'Emblem Vault [Ethereum]',
+                           'Fat Ape Club',
+                           'VeeFriends',
+                           'JUNGLE FREAKS BY TROSLEY',
+                           'Meebits',
+                           'Furballs.com Official',
+                           'Kaiju Kingz',
+                           'Bears Deluxe',
+                           'PUNKS Comic',
+                           'Hor1zon Troopers',
+                           'Lazy Lions',
+                           'LOSTPOETS',
+                           'Chain Runners',
+                           'Chromie Squiggle by Snowfro',
+                           'MekaVerse',
+                           'Vox Collectibles',
+                           'MutantCats',
+                           'World of Women',
+                           'SuperFarm Genesis Series',
+                           'Eponym by ART AI',]
+            collection_dict = {
+                 collections[i]: i for i in range(len(collections))
+            }
+            meta_data = np.zeros(shape=(len(collection_dict)+1))
+            if collection_name in collection_dict.keys():
+                meta_data[collection_dict[collection_name]] = 1
+            meta_data[-1] = num_sales
+            meta_data = meta_data.reshape(1, -1)
 
-        img = cv2.resize(cv2.imread(img_path)/256., (256, 256))
-        img = img.reshape(1, 256, 256, 3)
+            img = cv2.resize(img/255., (224, 224))
+            img = img.reshape(1, 224, 224, 3)
 
-        pred = self.model.predict([img, meta_data])
+            pred = self.model.predict([img, meta_data])
+        elif self.task == "B":
+            img = cv2.resize(img/255., (224, 224))
+            img = img.reshape(1, 224, 224, 3)
+
+            pred = self.model.predict(img)
+
         return pred[0][0]
 
 
-def train(path_list: np.ndarray, meta_data: np.ndarray,
-          target: np.ndarray, loss):
+def train(path_list: np.ndarray, target: np.ndarray, loss,
+          meta_data: Optional[np.ndarray] = None, task: str = "B"):
     """
     The function for training model.
 
@@ -449,30 +555,48 @@ def train(path_list: np.ndarray, meta_data: np.ndarray,
     ----------
     path_list : np.ndarray
         The path list of all image data.
-    meta_data : np.ndarray
-        The array of meta data of image.
     target : np.ndarray
         The array of targets data.
     loss : function
         The loss function of keras.
+    meta_data : np.ndarray
+        The array of meta data of image.
+    task : str
+        Please determine you train model for task A or B(default=A).
     """
-    train_path, val_path, train_meta, val_meta, train_y, val_y =\
-        train_test_split(path_list, meta_data, target, test_size=0.1, random_state=6174)
+    if task == "A":
+        train_path, val_path, train_meta, val_meta, train_y, val_y =\
+            train_test_split(path_list, meta_data, target, test_size=0.1, random_state=6174)
+        train_gen = FullPathDataLoader(path_list=train_path, target=train_y,
+                                       meta_data=train_meta, batch_size=16,
+                                       width=224, height=224, task=task)
+        val_gen = FullPathDataLoader(path_list=val_path, target=train_y,
+                                     meta_data=val_meta, batch_size=1,
+                                     width=224, height=224, task=task)
+    elif task == "B":
+        train_path, val_path, train_y, val_y =\
+            train_test_split(path_list, target, test_size=0.1, random_state=6174)
+        train_gen = FullPathDataLoader(path_list=train_path, target=train_y,
+                                       width=224, height=224, batch_size=16, task=task)
+        val_gen = FullPathDataLoader(path_list=val_path, target=val_y,
+                                     width=224, height=224, batch_size=1, task=task)
+    else:
+        raise Exception("Please set task is A or B")
 
-    train_gen = FullPathDataLoader(path_list=train_path,
-                                   meta_data=train_meta, target=train_y,
-                                   batch_size=16)
-    val_gen = FullPathDataLoader(path_list=val_path,
-                                 meta_data=val_meta, target=val_y,
-                                 batch_size=1)
+    if meta_data:
+        meta_shape = meta_data.shape[1]
+    else:
+        meta_shape = None
+
+    set_seed()
     model = NFTModel(
-        create_model(input_shape=(256, 256, 3), meta_shape=len(meta_features),
-                     output_shape=1, activation=activations.relu,
-                     loss=loss, learning_rate=0.0001,
-                     pretrain=True)
+        model_func=create_model, input_shape=(224, 224, 3),
+        output_shape=1,activation=activations.relu, loss=loss,
+        meta_shape=meta_shape, task=task,
+        learning_rate=0.00001, pretrain=True
     )
 
-    ES = callbacks.EarlyStopping(monitor='val_loss', patience=5,
+    ES = callbacks.EarlyStopping(monitor='val_loss', patience=10,
                                  restore_best_weights=True)
 
     print("starting training")
@@ -484,9 +608,14 @@ def train(path_list: np.ndarray, meta_data: np.ndarray,
     print("finished training")
     print('*' + '-' * 30 + '*' + '\n')
 
-    val_gen = FullPathDataLoader(path_list=val_path,
-                                 meta_data=val_meta, target=val_y,
-                                 batch_size=1, shuffle=False, is_train=False)
+    if task == "A":
+        val_gen = FullPathDataLoader(path_list=val_path, target=val_y,
+                                     meta_data=val_meta, batch_size=1, task=task,
+                                     width=224, height=224, shuffle=False, is_train=False)
+    else:
+        val_gen = FullPathDataLoader(path_list=val_path, target=val_y,
+                                     batch_size=1, task=task,
+                                     width=224, height=224, shuffle=False, is_train=False)
     print("starting evaluate")
     print('*' + '-' * 30 + '*')
 
@@ -496,7 +625,6 @@ def train(path_list: np.ndarray, meta_data: np.ndarray,
     print('*' + '-' * 30 + '*' + '\n')
 
     return model
-
 
 def load_model(file_name: str):
     """
@@ -531,3 +659,9 @@ def save_model(instance, file_name: str):
     """
     with open(file_name, mode='wb') as f:
         cloudpickle.dump(instance, f)
+        
+def set_seed(random_state=6174):
+    tf.random.set_seed(random_state)
+    np.random.seed(random_state)
+    random.seed(random_state)
+    os.environ['PYTHONHASHSEED'] = str(random_state)
