@@ -571,7 +571,7 @@ def train(path_list: np.ndarray, target: np.ndarray, loss,
                                        meta_data=train_meta, batch_size=16,
                                        width=224, height=224, task=task)
         val_gen = FullPathDataLoader(path_list=val_path, target=train_y,
-                                     meta_data=val_meta, batch_size=1,
+                                     meta_data=val_meta, batch_size=16,
                                      width=224, height=224, task=task)
     elif task == "B":
         train_path, val_path, train_y, val_y =\
@@ -579,7 +579,7 @@ def train(path_list: np.ndarray, target: np.ndarray, loss,
         train_gen = FullPathDataLoader(path_list=train_path, target=train_y,
                                        width=224, height=224, batch_size=16, task=task)
         val_gen = FullPathDataLoader(path_list=val_path, target=val_y,
-                                     width=224, height=224, batch_size=1, task=task)
+                                     width=224, height=224, batch_size=16, task=task)
     else:
         raise Exception("Please set task is A or B")
 

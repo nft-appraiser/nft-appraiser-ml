@@ -421,11 +421,11 @@ def get_events_data(dir_name: str, num_loop: Optional[int] = 5,
                         continue
 
                 gc.collect()  # Just in case, free the memory so that the process does not stop
-                time.sleep(10)
+                time.sleep(30)
 
             except:
                 gc.collect()
-                time.sleep(10)
+                time.sleep(30)
                 continue
 
         before_date += 86400
@@ -465,6 +465,8 @@ def concat_past_data(df: pd.DataFrame, num_past=10):
         for i in range(min(num_past, len(price_list))):
             df.loc[idx, f'past_price{i}'] = price_list[i]
 
+        time.sleep(30)
+
     return df
 
 def get_past_data(df: pd.DataFrame, dir_name: str):
@@ -480,10 +482,11 @@ def get_past_data(df: pd.DataFrame, dir_name: str):
     """
     address_list = df['asset_contract.address'].values
     token_id_list = df['token_id'].values
-    for idx, url_li in tqdm(enumerate(zip(address_list, token_id_list))):
+    before_date_list = pd.to_datetime(df['last_sale.created_date']).apply(lambda x: x.timestamp()).values.astype(int)
+    for idx, url_li in tqdm(enumerate(zip(address_list, token_id_list, before_date_list))):
         try:
-            url1 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=0&limit=50"
-            url2 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=50&limit=50"
+            url1 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=0&limit=50&occurred_before={url_li[2]}"
+            url2 = f"https://api.opensea.io/api/v1/events?asset_contract_address={url_li[0]}&token_id={url_li[1]}&only_opensea=false&offset=50&limit=50&occurred_before={url_li[2]}"
 
             headers = {"Accept": "application/json",
                        "X-API-KEY": get_opensea_api_key()}
@@ -500,9 +503,11 @@ def get_past_data(df: pd.DataFrame, dir_name: str):
             file_name = f"{dir_name}/{df.loc[idx, 'collection.name']}/{url_li[0]}_{url_li[1]}.csv"
             event_df.to_csv(file_name, index=False)
             gc.collect()
+            time.sleep(30)
 
         except:
             gc.collect()
+            time.sleep(30)
             continue
 
 def get_successful_data(df: pd.DataFrame, dir_name: str):
